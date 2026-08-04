@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feature Spec — Draft v0.1 · Team DotA Science</title>
+<style>
+  :root{
+    --ink:#12161c; --mid:#57606e; --faint:#8b94a3; --line:#e2e6ec; --bg:#fff;
+    --accent:#1f6feb; --good:#0f8b5a; --warn:#b4690e; --bad:#c0392b; --soft:#f6f8fa;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#eef1f5;color:var(--ink);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+       line-height:1.6;padding:40px 20px}
+  .doc{max-width:940px;margin:0 auto;background:var(--bg);padding:56px 64px 64px;
+       box-shadow:0 4px 24px rgba(0,0,0,.1);border-radius:6px}
+  .eyebrow{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--mid);font-weight:650}
+  h1{font-size:34px;line-height:1.2;letter-spacing:-.02em;margin:10px 0 8px;font-weight:750}
+  .lede{font-size:17px;color:var(--mid);margin-bottom:8px}
+  h2{font-size:22px;letter-spacing:-.01em;margin:42px 0 12px;font-weight:700;
+     padding-top:22px;border-top:1px solid var(--line)}
+  h3{font-size:16.5px;margin:24px 0 8px;font-weight:700}
+  p{margin-bottom:12px;font-size:15.5px}
+  ul,ol{margin:0 0 14px 22px;font-size:15.5px}
+  li{margin-bottom:6px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;
+       background:var(--soft);padding:1.5px 5px;border-radius:4px}
+  pre{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+      font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.55;
+      overflow-x:auto;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px}
+  th{text-align:left;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mid);
+     font-weight:750;padding:8px 10px;border-bottom:2px solid var(--line);vertical-align:bottom}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  tbody tr:hover{background:var(--soft)}
+  .tag{display:inline-block;font-size:11px;font-weight:750;letter-spacing:.05em;
+       padding:2px 7px;border-radius:4px;text-transform:uppercase;white-space:nowrap}
+  .ok{background:#e4f5ed;color:var(--good)}
+  .care{background:#fdf1e0;color:var(--warn)}
+  .no{background:#fdeceb;color:var(--bad)}
+  .box{border-left:3px solid var(--accent);background:var(--soft);padding:14px 18px;
+       border-radius:0 8px 8px 0;margin:16px 0;font-size:15px}
+  .box.warn{border-left-color:var(--warn)}
+  .box.bad{border-left-color:var(--bad)}
+  .box b{display:block;margin-bottom:4px}
+  .fig{border:1px solid var(--line);border-radius:8px;padding:18px;margin:18px 0;text-align:center}
+  .fig figcaption{font-size:13.5px;color:var(--mid);margin-top:12px;text-align:left}
+  .meta{font-size:13.5px;color:var(--faint);margin-top:44px;padding-top:16px;border-top:1px solid var(--line)}
+  .q{font-size:15.5px;margin-bottom:10px;padding-left:14px;border-left:2px solid var(--warn)}
+</style>
+</head>
+<body>
+<div class="doc">
+
+<div class="eyebrow">Team DotA Science · Draft for discussion</div>
+<h1>Feature Specification — v0.1</h1>
+<p class="lede">How 2-second position samples become model inputs for the XGBoost classifier in
+the proposal. Scope is deliberately unchanged; the priority is getting the leakage handling right.</p>
+
+<div class="box">
+<b>Status: draft, nothing here is decided yet.</b>
+This is the piece the mentor flagged as unspecified ("decide how raw position time series become
+tabular features"). Numbers below are measured from the 20-match pilot; thresholds are proposals
+that should be validated against the parsed data before we commit.
+<br><br>
+This document stays inside the approved plan — movement features into an XGBoost skill classifier
+with SHAP. Two ideas that would change the modelling setup itself are deliberately kept out and
+written up separately in <i>Feature Spec — Extensions</i>, so that adopting them stays a separate
+decision. <b>Section 6 is the part that matters most</b>: there is a leakage route that affects the
+existing plan regardless of which extensions we do or do not take.
+</div>
+
+<h2>1. What we actually have</h2>
+
+<p>Parsing produces exactly one table. Everything in this spec is derived from it:</p>
+
+<pre>match_id   tick   sec    player   player_slot   x        y
+8912186878    0    0.0        0             0   9515.2   9975.4
+8912186878    0    0.0        5           128  23451.8  22746.1
+8912186878   60    2.0        0             0   9702.6  10140.3
+...</pre>
+
+<p>One row per player per 2 seconds — about 12,000 rows and 0.15 MB per match. It joins to a
+player table carrying <code>account_id</code>, <code>hero_id</code>, <code>rank_tier</code> and
+<code>leaver_status</code>.</p>
+
+<p><b>What we do not have yet:</b> facing angle, action state, health, and combat events
+(kills, deaths, tower and Roshan). These need a second extraction pass. Because the raw replays
+are archived, adding them later costs about 14 seconds per match rather than a re-collection —
+but any feature depending on them cannot be built today.</p>
+
+<h2>2. Two derived tables, not one</h2>
+
+<p>The model needs one row per player per match. Going straight there from raw positions in a
+single step is possible but awkward: nearly every aggregate depends on the same intermediate
+quantities — how far forward the player is, which zone they are in, how far from teammates — and
+recomputing those inside each aggregation is where mistakes hide.</p>
+
+<p>So the spec defines an intermediate table first. It is a per-timestep view with those
+quantities already resolved, and the model table is a plain groupby over it:</p>
+
+<table>
+<thead><tr><th style="width:14%">Layer</th><th style="width:26%">Shape</th><th>What it is</th><th style="width:22%">Serves</th></tr></thead>
+<tbody>
+<tr><td><b>L0</b></td><td>player × 2 s</td><td>Raw sampled positions — what parsing already gives us</td><td>Everything downstream</td></tr>
+<tr><td><b>L1</b></td><td>player × 2 s</td><td>Per-step quantities resolved once, in a team-relative frame</td><td>EDA, trajectory plots, sanity checks</td></tr>
+<tr><td><b>L2</b></td><td>player × match</td><td>Aggregates over zone × phase buckets</td><td>XGBoost + SHAP (the committed MVP)</td></tr>
+</tbody>
+</table>
+
+<div class="box">
+<b>Why bother with L1.</b>
+It makes L2 a groupby instead of a pile of bespoke calculations, it is the table you want for
+trajectory plots and heatmaps in the report, and it is where the coordinate transform below is
+applied once rather than repeatedly. It also happens to be the shape any later modelling
+extension would need, but that is a side effect, not the reason.
+</div>
+
+<h2>3. The coordinate transform (do this before anything else)</h2>
+
+<div class="box bad">
+<b>Raw x, y cannot be used directly.</b>
+Radiant spawns at low coordinates, Dire at high ones. The same numeric position means opposite
+things for the two teams — "deep in enemy territory" is a high x for Radiant and a low x for Dire.
+Feed raw coordinates to a model and the first thing it learns is which team you were on. Every
+feature below is computed in a team-relative frame instead.
+</div>
+
+<p>The pilot gives us the two landmarks we need. Averaged over the first sampled tick of each
+match, the Radiant fountain sits at about <b>(9515, 9975)</b> and the Dire fountain at about
+<b>(23451, 22746)</b>. That line is the map's main diagonal — the mid lane — and it defines a
+natural frame:</p>
+
+<pre>R = (9515, 9975)          Radiant fountain
+D = (23451, 22746)        Dire fountain
+axis = D - R = (13936, 12771),  |axis| = 18903
+
+u = axis / |axis| = ( 0.7373,  0.6756)     along the diagonal
+n = perpendicular  = (-0.6756,  0.7373)     across it
+
+depth(p)   = ((p - R) · u) / 18903      0 = Radiant fountain, 1 = Dire fountain
+lateral(p) =  (p - R) · n               signed units off the mid diagonal
+
+# make it team-relative so both sides are comparable
+own_depth  = depth        if Radiant else 1 - depth
+own_lateral= lateral      if Radiant else -lateral</pre>
+
+<p><code>own_depth</code> runs 0 at your own fountain to 1 at the enemy's — a single number for
+"how far forward am I", directly comparable across teams. <code>own_lateral</code> is roughly
+&plusmn;9400 at the map corners and gives us the lane.</p>
+
+<figure class="fig">
+<svg viewBox="0 0 460 300" width="100%" style="max-width:460px">
+  <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L7,3 L0,6 z" fill="#1f6feb"/></marker></defs>
+  <!-- map square -->
+  <rect x="40" y="30" width="240" height="240" fill="#f6f8fa" stroke="#dfe3e9"/>
+  <!-- lane bands -->
+  <polygon points="40,30 160,30 40,150" fill="#e8f0fe" opacity=".8"/>
+  <polygon points="280,270 160,270 280,150" fill="#fdf1e0" opacity=".8"/>
+  <!-- diagonal = mid -->
+  <line x1="52" y1="258" x2="268" y2="42" stroke="#1f6feb" stroke-width="2" marker-end="url(#ar)"/>
+  <!-- fountains -->
+  <circle cx="52" cy="258" r="6" fill="#0f8b5a"/><circle cx="268" cy="42" r="6" fill="#c0392b"/>
+  <text x="26" y="284" font-size="10.5" fill="#57606e">Radiant (9515, 9975)</text>
+  <text x="196" y="26" font-size="10.5" fill="#57606e">Dire (23451, 22746)</text>
+  <text x="70" y="70" font-size="11" fill="#1f6feb" font-weight="700">TOP</text>
+  <text x="150" y="160" font-size="11" fill="#1f6feb" font-weight="700" transform="rotate(-45 150 160)">MID</text>
+  <text x="228" y="240" font-size="11" fill="#b4690e" font-weight="700">BOT</text>
+  <!-- depth axis -->
+  <text x="296" y="22" font-size="11" fill="#12161c" font-weight="700">own_depth</text>
+  <line x1="300" y1="258" x2="300" y2="42" stroke="#57606e" stroke-width="1.2" marker-end="url(#ar)"/>
+  <line x1="296" y1="150" x2="304" y2="150" stroke="#57606e" stroke-width="1.2"/>
+  <line x1="296" y1="258" x2="304" y2="258" stroke="#57606e" stroke-width="1.2"/>
+  <text x="310" y="48" font-size="10.5" fill="#57606e">1 · enemy fountain</text>
+  <text x="310" y="154" font-size="10.5" fill="#57606e">0.5 · river</text>
+  <text x="310" y="262" font-size="10.5" fill="#57606e">0 · own fountain</text>
+</svg>
+<figcaption>The map in the transformed frame. Depth runs along the diagonal from your own fountain
+to the enemy's; lateral distance from that diagonal gives the lane. Both are mirrored for Dire so
+the two teams are directly comparable.</figcaption>
+</figure>
+
+<h3>Zones (proposal — needs validating)</h3>
+<table>
+<thead><tr><th style="width:18%">Zone</th><th style="width:34%">Rule</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td><b>Mid</b></td><td><code>|own_lateral| &lt; 2500</code></td><td>The diagonal corridor</td></tr>
+<tr><td><b>Top</b></td><td><code>own_lateral &ge; 2500</code></td><td>Upper-left of the diagonal from Radiant's view</td></tr>
+<tr><td><b>Bottom</b></td><td><code>own_lateral &le; -2500</code></td><td>Lower-right</td></tr>
+</tbody>
+</table>
+<p>This is the three-zone split the team agreed to. The 2500 threshold is a guess and should be
+set from the data: plot the distribution of <code>own_lateral</code> during the first 10 minutes,
+when players are reliably in lanes, and pick the cut that separates the three modes. A fourth
+"jungle / river" zone is a natural extension if the three-way split proves too coarse.</p>
+
+<h3>Phases (proposal — needs a decision)</h3>
+<table>
+<thead><tr><th style="width:18%">Phase</th><th style="width:34%">Time-based (simple)</th><th>Event-based (better, not yet possible)</th></tr></thead>
+<tbody>
+<tr><td><b>Laning</b></td><td>0 – 10 min</td><td>Until the first outer tower falls</td></tr>
+<tr><td><b>Mid</b></td><td>10 – 25 min</td><td>First tower to first barracks</td></tr>
+<tr><td><b>Late</b></td><td>25 min – end</td><td>After the first barracks falls</td></tr>
+</tbody>
+</table>
+<p>Event-based phases are more faithful — a fast game reaches "late" earlier — but they need the
+tower events we have not extracted. Recommendation: ship v1 with fixed times, and record match
+duration as a feature so the model can partly compensate.</p>
+
+<h2>4. Layer 1 — resolved quantities per step</h2>
+
+<p>One row per player per 2 seconds, with the transform applied and cross-player quantities
+resolved. All ten players share timestamps, so those are a groupby rather than a join. Fields
+marked <i>context</i> depend on the other nine players — see section 6 before using them.</p>
+
+<table>
+<thead><tr><th style="width:26%">Field</th><th>Definition</th><th style="width:16%">Role</th></tr></thead>
+<tbody>
+<tr><td><code>own_depth</code></td><td>0 at own fountain → 1 at enemy fountain</td><td>self</td></tr>
+<tr><td><code>own_lateral</code></td><td>Signed distance from the mid diagonal</td><td>self</td></tr>
+<tr><td><code>zone</code></td><td>top / mid / bottom from the rule above</td><td>self</td></tr>
+<tr><td><code>phase</code></td><td>laning / mid / late</td><td>self</td></tr>
+<tr><td><code>dist_team_centroid</code></td><td>Distance to the mean position of living teammates</td><td>context</td></tr>
+<tr><td><code>dist_nearest_ally</code></td><td>Min distance to a living teammate</td><td>context</td></tr>
+<tr><td><code>dist_nearest_enemy</code></td><td>Min distance to a living opponent</td><td>context</td></tr>
+<tr><td><code>allies_within_1500</code></td><td>Count of teammates inside a 1500-unit radius</td><td>context</td></tr>
+<tr><td><code>enemies_within_1500</code></td><td>Count of opponents inside the same radius</td><td>context</td></tr>
+<tr><td><code>is_dead</code></td><td>Inferred: position teleports to own fountain and stays</td><td>mask, never a feature</td></tr>
+<tr><td><code>speed</code></td><td>‖Δposition‖ / 2 s, units per second</td><td>movement</td></tr>
+<tr><td><code>heading</code></td><td>Direction of Δposition in the team-relative frame</td><td>movement</td></tr>
+<tr><td><code>d_depth</code></td><td>Change in own_depth — signed "pushing forward vs falling back"</td><td>movement</td></tr>
+<tr><td><code>move_class</code></td><td>advance / retreat / lateral / stationary, from d_depth and speed</td><td>movement</td></tr>
+</tbody>
+</table>
+
+<div class="box warn">
+<b>Deaths are a mask, not a feature.</b>
+A death shows up cleanly in position data — the player teleports to their fountain and sits there.
+That makes deaths cheap to detect without the combat log, which is useful. But death count is a
+component of KDA, and the leakage guide is explicit that outcome signals must not enter the
+movement feature set. So <code>is_dead</code> is used only to <i>exclude</i> dead time from
+movement statistics, exactly as the guide prescribes for <code>m_lifeState</code>.
+</div>
+
+<h2>5. Layer 2 — what the model actually sees</h2>
+
+<p>One row per player per match. Bucketed features are computed for each of the nine
+zone × phase combinations; match-level features are computed once. All movement statistics
+exclude time spent dead.</p>
+
+<h3>Per bucket (zone × phase, 9 buckets)</h3>
+<table>
+<thead><tr><th style="width:24%">Feature</th><th>What it is meant to capture</th><th style="width:15%">Leakage</th></tr></thead>
+<tbody>
+<tr><td><code>time_share</code></td><td>Fraction of the phase spent in this zone — where a player chooses to be</td><td><span class="tag ok">safe</span></td></tr>
+<tr><td><code>dist_travelled</code></td><td>Total movement inside the bucket</td><td><span class="tag ok">safe</span></td></tr>
+<tr><td><code>idle_share</code></td><td>Fraction of samples below a small speed threshold — the outline's "idle time" hypothesis</td><td><span class="tag ok">safe</span></td></tr>
+<tr><td><code>mean_depth</code>, <code>sd_depth</code></td><td>How far forward, and how much that varies — aggression and its stability</td><td><span class="tag ok">safe</span></td></tr>
+<tr><td><code>mean_dist_centroid</code></td><td>Grouping vs isolation — the outline's "team spread" hypothesis</td><td><span class="tag ok">safe</span></td></tr>
+<tr><td><code>mean_dist_enemy</code></td><td>Distance kept from opponents — spacing discipline</td><td><span class="tag ok">safe</span></td></tr>
+<tr><td><code>mean_speed</code></td><td>Average movement rate while alive</td><td><span class="tag care">check</span></td></tr>
+</tbody>
+</table>
+
+<h3>Per match</h3>
+<table>
+<thead><tr><th style="width:24%">Feature</th><th>What it is meant to capture</th><th style="width:15%">Leakage</th></tr></thead>
+<tbody>
+<tr><td><code>map_coverage</code></td><td>Share of a coarse grid visited, or entropy of the position distribution</td><td><span class="tag ok">safe</span></td></tr>
+<tr><td><code>path_efficiency</code></td><td>Straight-line displacement ÷ distance actually travelled, per segment — the "pathing efficiency" hypothesis</td><td><span class="tag ok">safe</span></td></tr>
+<tr><td><code>rotations</code></td><td>Number of zone changes — roaming frequency</td><td><span class="tag ok">safe</span></td></tr>
+<tr><td><code>depth_p90</code></td><td>90th percentile of own_depth — how deep the player is willing to go</td><td><span class="tag ok">safe</span></td></tr>
+<tr><td><code>time_in_enemy_half</code></td><td>Share of alive time with own_depth &gt; 0.5</td><td><span class="tag ok">safe</span></td></tr>
+<tr><td><code>match_duration</code></td><td>Context, and partly compensates for fixed-time phases</td><td><span class="tag care">check</span></td></tr>
+<tr><td><code>time_dead</code>, <code>death_count</code></td><td>Derivable, but they are KDA in disguise</td><td><span class="tag no">exclude</span></td></tr>
+</tbody>
+</table>
+
+<div class="box warn">
+<b>The subtle one: speed is partly bought with gold.</b>
+The earlier feature review excluded <code>m_iMoveSpeed</code> because boots are purchased with
+gold, which would smuggle economy into a movement-only model. Observed velocity has the same
+problem — a richer player simply moves faster. We should either normalise speed within
+phase, treat speed features as a documented caveat, or run the ablation both ways and report the
+difference. Leaving it unexamined would undermine the movement-vs-economy comparison the whole
+project rests on.
+</div>
+
+<div class="box warn">
+<b>Dimensionality.</b>
+Seven bucketed features × 9 buckets plus 6 match-level ones is about 69 features per player.
+With 500 matches that is 5,000 player rows — but only 500 independent matches, so the effective
+sample is far smaller than the row count suggests. Expect to need regularisation and feature
+selection, and to report performance with grouped cross-validation by <code>match_id</code>.
+</div>
+
+<h2>6. The leakage risk we have to design around</h2>
+
+<div class="box bad">
+<b>The other nine players are a shortcut to the label.</b>
+Matchmaking puts similar-skill players together, so the people around you are strong evidence
+of your own rank — before anyone looks at how <i>you</i> move. Any feature that reflects where
+teammates or opponents are lets the model read the lobby's skill level instead of the player's.
+</div>
+
+<p>The pilot lets us size this exactly. Player rank varies within a match with a standard
+deviation of about <b>7.5 tier units</b>, and across matches with about <b>13.6</b>. So:</p>
+
+<table>
+<thead><tr><th style="width:62%">Source of variation in a player's rank</th><th>Share</th></tr></thead>
+<tbody>
+<tr><td>Which match they were in (the lobby's overall level)</td><td><b>76%</b></td></tr>
+<tr><td>Who they are, relative to the others in that same match</td><td><b>24%</b></td></tr>
+</tbody>
+</table>
+
+<p>A model that learns nothing about individuals but manages to infer "this is a Legend-level
+lobby" already has three quarters of the signal. And the relational features in this spec —
+<code>dist_team_centroid</code>, <code>dist_nearest_ally</code>, <code>dist_nearest_enemy</code>,
+<code>allies_within_1500</code>, <code>enemies_within_1500</code> — are all computed from the
+other nine players' positions, which is precisely the information that identifies the lobby.</p>
+
+<p>This is not label leakage in the textbook sense; the label never appears in the features. But
+the consequence is the same. We would report that movement predicts skill, when much of the
+performance came from reading the skill level of everyone else in the game. It is the same
+confounding logic as the region argument, with a variable we cannot simply filter out.</p>
+
+<h3>The control that settles it</h3>
+
+<div class="box">
+<b>Teammate-only negative control.</b>
+Build a second model that predicts the target player's rank using <i>only the other nine
+players'</i> features — the target's own movement excluded entirely. That model has no individual
+signal by construction, so whatever it scores is the size of the shortcut. If the full model beats
+it by a wide margin, the relational features are earning their place. If the two land close
+together, the full model is mostly reading the lobby and we have to say so.
+</div>
+
+<p>This is cheap to run, needs no extra data, and it converts an unfalsifiable worry into a
+number we can report. It should be a required row in the results table alongside the
+economy-only and movement-only baselines the mentor asked for.</p>
+
+<h3>Two other mitigations</h3>
+<ul>
+<li><b>A self-only feature set.</b> Features that depend on nothing but the target's own
+trajectory — <code>own_depth</code>, <code>speed</code>, <code>path_efficiency</code>,
+<code>map_coverage</code>, <code>rotations</code>, <code>time_share</code> per zone — are immune
+to this shortcut. Running the model on self-only features gives a clean lower bound, at the cost
+of dropping the team-spread hypothesis from the proposal.</li>
+<li><b>A within-match setup would remove it entirely</b>, but that changes the modelling task
+rather than the feature table, so it is written up in <i>Feature Spec — Extensions</i> and is not
+assumed anywhere in this document.</li>
+</ul>
+
+<h3>Splitting rules this implies</h3>
+<ul>
+<li>Group by <code>match_id</code>, not only by <code>account_id</code>. Two players from the same
+match in different folds share the entire lobby context.</li>
+<li>Deduplicate by <code>account_id</code> as already agreed, so no player appears in both folds.</li>
+</ul>
+
+<h2>7. Open decisions</h2>
+
+<div class="q"><b>Zone thresholds.</b> Is 2500 units the right cut for mid lane? Validate against
+the 20 parsed matches before committing. Do we want a fourth jungle/river zone?</div>
+<div class="q"><b>Phase boundaries.</b> Fixed times now, or wait for tower events and use them?
+Fixed times can ship today.</div>
+<div class="q"><b>Speed and economy.</b> Do we keep speed features, normalise them, or drop them
+to keep the movement-only claim clean?</div>
+<div class="q"><b>Per-role handling.</b> A support and a carry move very differently, and role is
+not in our data. Position-based role inference is possible from laning-phase behaviour, but is
+itself a modelling task. Ignoring it means part of the "skill signal" may be role signal.</div>
+<div class="q"><b>Relational features: keep, or go self-only?</b> This is the decision section 6
+forces. Running the teammate-only control first turns it into an evidence-based call rather than a
+judgement call.</div>
+<div class="q"><b>Professional play.</b> The proposal's third research question compares amateur
+and professional play, but we are collecting only public ranked matches. Pro replays come from a
+different endpoint and do not expire. Either we add them or we narrow the question.</div>
+
+<h2>8. Immediate next step</h2>
+<p>Before writing any feature code, run one validation pass on the 20 already-parsed matches:
+transform the coordinates, plot <code>own_lateral</code> for the first ten minutes, and check that
+it separates into three clear lane modes. If it does, the zone rule is settled and the rest of
+this spec is straightforward implementation. If it does not, the zone definition needs rethinking
+before anything is built on top of it.</p>
+
+<div class="meta">
+Draft v0.1 · derived from the 20-match pilot (patch 7.41d) · sources: project proposal, report
+outline, Acquisition_Fix_and_Feature_Decisions.md, Data_Leakage_Review_Guide.md ·
+fountain coordinates measured, thresholds proposed · scope limited to the approved XGBoost plan;
+modelling extensions are in a separate document
+</div>
+
+</div>
+</body>
+</html>

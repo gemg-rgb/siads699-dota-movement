@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feature Spec — Extensions (not in scope) · Team DotA Science</title>
+<style>
+  :root{
+    --ink:#12161c; --mid:#57606e; --faint:#8b94a3; --line:#e2e6ec; --bg:#fff;
+    --accent:#1f6feb; --good:#0f8b5a; --warn:#b4690e; --bad:#c0392b; --soft:#f6f8fa;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#eef1f5;color:var(--ink);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+       line-height:1.6;padding:40px 20px}
+  .doc{max-width:940px;margin:0 auto;background:var(--bg);padding:56px 64px 64px;
+       box-shadow:0 4px 24px rgba(0,0,0,.1);border-radius:6px;border-top:5px solid var(--warn)}
+  .eyebrow{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--warn);font-weight:700}
+  h1{font-size:34px;line-height:1.2;letter-spacing:-.02em;margin:10px 0 8px;font-weight:750}
+  .lede{font-size:17px;color:var(--mid);margin-bottom:8px}
+  h2{font-size:22px;letter-spacing:-.01em;margin:42px 0 12px;font-weight:700;
+     padding-top:22px;border-top:1px solid var(--line)}
+  h3{font-size:16.5px;margin:24px 0 8px;font-weight:700}
+  p{margin-bottom:12px;font-size:15.5px}
+  ul{margin:0 0 14px 22px;font-size:15.5px}
+  li{margin-bottom:7px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;
+       background:var(--soft);padding:1.5px 5px;border-radius:4px}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px}
+  th{text-align:left;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mid);
+     font-weight:750;padding:8px 10px;border-bottom:2px solid var(--line)}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  .box{border-left:3px solid var(--accent);background:var(--soft);padding:14px 18px;
+       border-radius:0 8px 8px 0;margin:16px 0;font-size:15px}
+  .box.warn{border-left-color:var(--warn)}
+  .box.bad{border-left-color:var(--bad)}
+  .box b{display:block;margin-bottom:4px}
+  .meta{font-size:13.5px;color:var(--faint);margin-top:44px;padding-top:16px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="doc">
+
+<div class="eyebrow">Team DotA Science · Not in the approved scope</div>
+<h1>Feature Spec — Extensions</h1>
+<p class="lede">Two ideas that would change the modelling task, kept out of the main spec on
+purpose. Nothing here is planned work.</p>
+
+<div class="box warn">
+<b>Why these are in a separate document.</b>
+The approved proposal commits to movement features into an XGBoost skill classifier with SHAP.
+Both ideas below would change that, so mixing them into the feature spec would quietly widen the
+scope. The main spec assumes none of this, and stays valid whether or not either is ever adopted.
+Adopting one should be an explicit decision with the mentor, not a drift.
+</div>
+
+<h2>1. Within-match comparison</h2>
+
+<p><b>The idea.</b> Instead of asking "is this player high or low skill," take two players from the
+<i>same</i> match and ask which one is ranked higher.</p>
+
+<h3>What it would fix</h3>
+
+<p>Section 6 of the main spec measures a real problem in the current plan: <b>76% of the variation
+in a player's rank is explained by which match they were in</b>, because matchmaking groups similar
+players. Any feature computed from the other nine players is partly a read on the lobby, so a model
+can score well without learning anything about the individual.</p>
+
+<p>Within a single match the lobby is identical for both players being compared, so that route is
+closed by construction. Whatever separates them has to come from their own behaviour. It also
+removes the match-level confounders we cannot otherwise control: game length, tempo, patch, who the
+opponents were.</p>
+
+<h3>What it would cost</h3>
+<table>
+<thead><tr><th style="width:30%">Aspect</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><td>Extra data collection</td><td>None. Runs on the same 500 matches.</td></tr>
+<tr><td>Sample size</td><td>Up to 45 pairs per match, so roughly 22,500 before filtering.</td></tr>
+<tr><td>Label</td><td>Relative, so class balance is exact by construction — randomise which player is presented first.</td></tr>
+<tr><td>Pair filtering</td><td>Only pairs at least one full medal apart. Medals lag actual skill and Dota tracks separate MMR per role, so smaller gaps are mostly noise. The average match spans two medals, so plenty qualify.</td></tr>
+<tr><td>New work</td><td>A pairwise feature representation (differences between the two players' feature vectors) and a different evaluation story — pair accuracy rather than class accuracy.</td></tr>
+</tbody>
+</table>
+
+<div class="box">
+<b>Where it sits today.</b>
+This is on the standup agenda as a question to the team, framed as a possible second analysis
+alongside the main model — not as a replacement for it. If the team says no, the main spec is
+unaffected; section 6's teammate-only control still tells us how much of the main model is
+lobby-reading.
+</div>
+
+<h2>2. Policy-based (reinforcement / imitation learning) framing</h2>
+
+<p><b>The idea.</b> Treat each player as following a policy: at every 2-second step they observe a
+situation and take a movement. Fit a policy to high-ranked players' behaviour, then score an unseen
+player by how likely their movements are under it. Skill becomes "how closely does this player
+behave like a strong player in the same situation."</p>
+
+<p>The L1 table in the main spec happens to be the right shape for this — per-step situation plus
+the movement taken — but that is a side effect of building it for aggregation, not a reason to
+pursue this.</p>
+
+<h3>Why it is not straightforward here</h3>
+
+<div class="box bad">
+<b>It inherits the leakage problem and adds one of its own.</b>
+The situation a player observes is built almost entirely from where the other nine players are —
+exactly the information that identifies the lobby. On top of that, a low likelihood score has two
+causes the method cannot separate: the player chose a different movement in a situation strong
+players also face, or the player was in a situation strong players rarely reach at all. Someone
+repeatedly pushed back into their own base scores badly because their <i>situations</i> are
+unusual, not because their <i>movements</i> are. Separating the two requires comparing movements
+within matched situations, which is a research problem in itself.
+</div>
+
+<p>Other gaps between what this needs and what we have:</p>
+<ul>
+<li><b>We do not know what the player could see.</b> Vision is central to Dota decisions, and we
+extract neither wards nor fog of war. Any fitted policy is conditioned on information the player
+may not have had.</li>
+<li><b>We observe outcomes, not decisions.</b> We see where a hero ended up, not the order that was
+issued, and nothing about items or abilities. The "action" is an approximation of the decision.</li>
+<li><b>500 matches is a small corpus</b> for a policy model, which is hungrier than a
+seventy-feature tabular model.</li>
+<li><b>Evaluation does not transfer.</b> Accuracy, AUC and SHAP — the metrics the proposal commits
+to — do not apply. We would need likelihood-based comparisons and a new baseline argument.</li>
+</ul>
+
+<h3>What would have to be true to adopt it</h3>
+<ul>
+<li>The main deliverable is finished and evaluated, with time genuinely left over.</li>
+<li>The mentor agrees the scope change is worth it, since it replaces the committed evaluation
+approach rather than adding to it.</li>
+<li>We accept a fallback: if it does not work, it is written up as an attempt with negative
+results, not as a gap in the MVP.</li>
+</ul>
+
+<div class="box">
+<b>The low-cost version.</b>
+Describe the framing in Future Work and point out that the data layout already supports it. That
+costs a paragraph, makes the report end on a forward-looking note, and commits us to nothing.
+</div>
+
+<h2>3. Recommendation</h2>
+
+<p>Neither of these should displace the current plan. The immediate priority is the one that
+applies regardless: <b>handling the leakage route in section 6 of the main spec</b> — running the
+teammate-only control, deciding whether relational features stay, and grouping the split by
+<code>match_id</code>.</p>
+
+<p>Of the two, the within-match comparison is the cheaper and better-motivated one, because it
+addresses a measured problem rather than adding a new capability. It is already on the standup
+agenda as a question. The policy framing is best left in Future Work unless the main deliverable
+lands early.</p>
+
+<div class="meta">
+Companion to <i>Feature Specification v0.1</i> · nothing in this document is assumed by the main
+spec · both items require an explicit scope decision before any work starts
+</div>
+
+</div>
+</body>
+</html>

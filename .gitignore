@@ -1,0 +1,36 @@
+# ===== Data (CRITICAL) =====
+# Never commit the real dataset
+data/
+*.parquet
+*.csv
+!features/l2_sample.csv
+!data/sample/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.env
+.venv/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# ===== Jupyter =====
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# ===== OS / IDE =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ===== Large outputs =====
+*.log
+*.tmp
