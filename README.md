@@ -106,8 +106,8 @@ See `reports/SIADS699_Dota2_Movement_Skill_Report.docx` (and PDF). Figures used 
 | Person | Focus |
 |--------|--------|
 | Gabriel Mejia | Framing, feature-spec design, phase/lane analysis, report, mentor-feedback integration |
-| Sung-jin Bae | Collection at scale, storage layout, missing-replay bias checks |
-| Changwoo Kim | Modeling support, ablations/SHAP, visualization support |
+| Changwoo Kim | Collection at scale, storage layout, missing-replay bias checks |
+| Sung-jin Bae | Modeling support, ablations/SHAP, visualization support |
 
 ## Course context
 
