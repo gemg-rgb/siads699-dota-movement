@@ -25,9 +25,14 @@ docs/
   Feature_Spec_v0.1.html              # Coordinate transform, zones, leakage notes
   Feature_Spec_Extensions.html
   README_data.md                      # Data dictionary
-data/sample/
-  matches.csv                         # Match metadata + skill_label
-  players.csv                         # Player keys, rank_tier, hero_id
+data/
+  positions_sample.parquet
+  players_sample.csv
+  matches_sample.csv
+  README.md                           # optional short note
+  sample/
+    matches.csv                       # Match metadata + skill_label
+    players.csv                       # Player keys, rank_tier, hero_id
 features/
   l2_sample.csv                       # Small sample of player-match features
 reports/
