@@ -19,7 +19,7 @@ Predicting player skill from **spatio-temporal movement** in Dota 2 ranked repla
 
 ```
 notebooks/
-  00_replay_parsing_prototype.ipynb   # Clarity-based position extraction (prototype)
+  00_replay_parsing_prototype.ipynb   # Clarity-based position extraction (prototype for reference)
   01_feature_engineering.ipynb        # Main feature + analysis notebook
 docs/
   Feature_Spec_v0.1.html              # Coordinate transform, zones, leakage notes
