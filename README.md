@@ -108,7 +108,7 @@ Access to that bucket is limited to accounts granted permission (course/team GCP
 
 A large share of rank variance sits at the match/lobby level, so features built from the other nine players can leak the label. The feature sets used for modeling stay focused on each player’s own movement. See `docs/Feature_Spec_v0.1.html`.
 
-## Methods (very short)
+## Methods
 
 1. Convert raw `(x, y)` to team-relative `own_depth` / `own_lateral` so Radiant and Dire are comparable.
 2. Mask short windows after fountain teleports (death proxy).
