@@ -1,17 +1,28 @@
-# ===== Data (CRITICAL) =====
-# Never commit the real dataset
-data/
-*.parquet
-*.csv
-!features/l2_sample.csv
+# ===== Data (do not commit full datasets) =====
+data/**
 !data/sample/
+!data/sample/**
+*.parquet
+# keep small metadata samples only
+!data/sample/matches.csv
+!data/sample/players.csv
+
+# ===== Secrets / credentials =====
+.env
+.env.*
+*.pem
+*.key
+credentials*.json
+*-credentials.json
+service-account*.json
+.gcloud/
+.google/
 
 # ===== Python =====
 __pycache__/
 *.py[cod]
 *$py.class
 .Python
-.env
 .venv/
 venv/
 ENV/
@@ -31,6 +42,9 @@ Thumbs.db
 *.swp
 *.swo
 
-# ===== Large outputs =====
+# ===== Large outputs / logs =====
 *.log
 *.tmp
+features/*.parquet
+features/l2_player_match.csv
+!features/l2_sample.csv
