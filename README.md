@@ -42,12 +42,12 @@ Full position data (`positions.parquet`, ~7.2M rows) is **not** stored in git. S
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-1. Place sample CSVs under `data/sample/` (already included).
-2. For full analysis, download the position table (see below) into `data/` or point the notebook paths at your copy.
+1. Place sample CSVs under `data/sample/`.
+2. For full analysis, download the position table into `data/` or point the notebook paths at your copy.
 3. Open `notebooks/01_feature_engineering.ipynb` and run top to bottom.
 
 Notebook paths are **relative** (`../data/sample`, `../features`). Adjust if you use Google Colab.
@@ -73,8 +73,6 @@ gcloud auth login
 gsutil -m cp -r gs://siads699-dota/dataset/v1/ ./data/
 ```
 
-**Do not commit** the full parquet file or any cloud credentials.
-
 ### Label definition (short)
 
 - Match-level `skill_label`: high vs low from lobby `avg_rank_tier`
@@ -83,11 +81,11 @@ gsutil -m cp -r gs://siads699-dota/dataset/v1/ ./data/
 
 See `docs/README_data.md` and `docs/Feature_Spec_v0.1.html` for details, including the note that a large share of rank variance is explained by `match_id` (lobby composition). Features built from the other nine players can leak the answer.
 
-## Methods (one paragraph)
+## Methods
 
 Raw `(x, y)` positions are converted to a team-relative frame so Radiant and Dire are comparable. We aggregate movement into player-match features (depth, speed, idle share, path efficiency, lane × phase time shares), then train XGBoost classifiers for high vs low skill. Evaluation emphasizes descriptive gaps, ablations, and SHAP rather than a single accuracy claim. Hero identity is treated as a control because role strongly affects pathing.
 
-## Main result (honest version)
+## Main result
 
 Higher-rank lobbies move a bit faster and idle a bit less. Average depth and lane occupancy look similar across ranks. Movement alone carries signal above chance, but effects are **small**. Claims about skill-from-motion need hero controls and leakage checks.
 
