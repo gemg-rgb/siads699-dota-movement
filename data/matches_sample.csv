@@ -1,0 +1,6 @@
+match_id,skill_label,avg_rank_tier,cluster,region,duration_s,start_time,patch,leaver,status,bytes,seconds,valid_dem,run_id
+8912751230,high,54.0,272.0,EUROPE,3514.0,1784973765.0,60.0,ok,ok,82462090,24.2,True,eu_500
+8912751358,high,62.0,183.0,STOCKHOLM,3442.0,1784973779.0,60.0,ok,ok,80113869,5.2,True,eu_500
+8912752249,low,34.0,182.0,STOCKHOLM,3475.0,1784973810.0,60.0,ok,ok,77080306,26.3,True,eu_500
+8912752925,low,35.0,274.0,EUROPE,3453.0,1784973855.0,60.0,ok,ok,74653418,17.1,True,eu_500
+8912753087,low,41.0,185.0,STOCKHOLM,3049.0,1784973865.0,60.0,ok,ok,67631088,5.3,True,eu_500
