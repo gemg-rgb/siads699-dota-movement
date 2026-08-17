@@ -1,4 +1,4 @@
-# ===== Data (do not commit full datasets) =====
+# ===== Data =====
 data/**
 !data/sample/
 !data/sample/**
