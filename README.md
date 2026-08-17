@@ -31,8 +31,8 @@ data/sample/
 features/
   l2_sample.csv                       # Small sample of player-match features
 reports/
-  SIADS699_Dota2_Movement_Skill_Report.docx
-  SIADS699_Dota2_Movement_Skill_Report.pdf
+  SIADS699_Team_DotA_Science_Report.docx
+  SIADS699_Team_DotA_Science_Report.pdf
   figures/                            # Report figures
 ```
 
