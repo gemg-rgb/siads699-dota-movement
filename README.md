@@ -4,116 +4,141 @@
 Gabriel Mejia · Changwoo Kim · Sung-jin Bae  
 University of Michigan School of Information
 
-Predicting player skill from **spatio-temporal movement** in Dota 2 ranked replays, without using gold, XP, KDA, or win/loss.
+Can you tell high-rank Dota 2 players from lower-rank ones using **movement alone** (no gold, XP, KDA, or win/loss)?
 
-## Project status
-
-- [x] Data collection and validation (533 matches, ~5k labeled players)
-- [x] Team-relative coordinate transform (`own_depth`, `own_lateral`)
-- [x] L1 (per-timestep) → L2 (player-match) feature pipeline
-- [x] Phase × lane exploratory analysis
-- [x] XGBoost models + feature ablations + SHAP
-- [x] Final report
+Short answer from this project: a little. Higher-rank lobbies move slightly faster and idle slightly less. Lane choice and average map depth look about the same. Movement features beat chance in an XGBoost model (AUC ≈ 0.79 on a simple split), but the gaps are small and need careful handling of lobby leakage and hero/role effects.
 
 ## Repository layout
 
-```
+```text
 notebooks/
-  00_replay_parsing_prototype.ipynb   # Clarity-based position extraction (prototype for reference)
-  01_feature_engineering.ipynb        # Main feature + analysis notebook
-docs/
-  Feature_Spec_v0.1.html              # Coordinate transform, zones, leakage notes
-  Feature_Spec_Extensions.html
-  README_data.md                      # Data dictionary
+  00_replay_parsing_prototype.ipynb   # optional: one-match Clarity parse demo (needs Java 17)
+  01_feature_engineering.ipynb        # main path: features, plots, model ablations
 data/
-  positions_sample.parquet
+  positions_sample.parquet            # 5-match sample (~1 MB) for offline runs
   players_sample.csv
   matches_sample.csv
-  README.md                           # optional short note
-  sample/
-    matches.csv                       # Match metadata + skill_label
-    players.csv                       # Player keys, rank_tier, hero_id
-features/
-  l2_sample.csv                       # Small sample of player-match features
+  README.md                           # what the sample contains
+  /samples
+docs/
+  Feature_Spec_v0.1.html              # coordinates, zones, leakage notes
+  Feature_Spec_Extensions.html
+  README_data.md                      # data dictionary
+features/                             # notebook outputs (gitignored or small samples)
 reports/
-  SIADS699_Team_DotA_Science_Report.docx
   SIADS699_Team_DotA_Science_Report.pdf
-  figures/                            # Report figures
+  SIADS699_Team_DotA_Science_Report.docx
+  figures/                            # report PNGs
+requirements.txt
 ```
 
-Full position data (`positions.parquet`, ~7.2M rows) is **not** stored in git. See data access below.
+The full position table (`positions.parquet`, ~7.2M rows) is **not** in git. Use GCS (below) or the sample files in `data/`.
 
 ## Quick start
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-1. Place sample CSVs under `data/sample/`.
-2. For full analysis, download the position table into `data/` or point the notebook paths at your copy.
-3. Open `notebooks/01_feature_engineering.ipynb` and run top to bottom.
+### Option A — Sample data (no cloud auth)
 
-Notebook paths are **relative** (`../data/sample`, `../features`). Adjust if you use Google Colab.
-
-## Data access
-
-Public ranked match metadata is included under `data/sample/`.
-
-Full movement table used in the report:
-
-```text
-gs://siads699-dota/dataset/v1/
-  positions.parquet
-  players.csv
-  matches.csv
-  README.md
+```bash
+mkdir -p data
+# if samples are already under data/, skip this
+# otherwise copy positions_sample.parquet, players_sample.csv, matches_sample.csv into data/
 ```
 
-Example (University of Michigan / GCP auth as configured for the course):
+Open `notebooks/01_feature_engineering.ipynb` and run top to bottom.:
+
+```text
+data/
+features/
+reports/figures/
+```
+
+If `positions.parquet` is missing, it automatically loads `positions_sample.parquet` (and the matching sample CSVs). That is enough to test the pipeline and plots. Report numbers used the full 533-match extract.
+
+### Option B — Full dataset (GCS)
+
+Needs the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) and an account with access to the project bucket:
 
 ```bash
 gcloud auth login
-gsutil -m cp -r gs://siads699-dota/dataset/v1/ ./data/
+mkdir -p data
+gsutil -m cp -r gs://siads699-dota/dataset/v1/* data/
 ```
 
-### Label definition
+Or run the download cell at the top of `01_feature_engineering.ipynb` (Colab auth works there; elsewhere use `gcloud auth login` first).
 
-- Match-level `skill_label`: high vs low from lobby `avg_rank_tier`
-- Player-level `rank_tier`: individual medal score (preferred for sensitivity checks)
-- Training-heavy region: Europe; holdout slice: mostly Singapore
+Expected files:
 
-See `docs/README_data.md` and `docs/Feature_Spec_v0.1.html` for details, including the note that a large share of rank variance is explained by `match_id` (lobby composition). Features built from the other nine players can leak the answer.
+```text
+data/positions.parquet
+data/players.csv
+data/matches.csv
+```
 
-## Methods
+## Notebooks
 
-Raw `(x, y)` positions are converted to a team-relative frame so Radiant and Dire are comparable. We aggregate movement into player-match features (depth, speed, idle share, path efficiency, lane × phase time shares), then train XGBoost classifiers for high vs low skill. Evaluation emphasizes descriptive gaps, ablations, and SHAP rather than a single accuracy claim. Hero identity is treated as a control because role strongly affects pathing.
+| Notebook | Role |
+|----------|------|
+| `01_feature_engineering.ipynb` | **Main.** Load data → team-relative coordinates → L2 features → report figures → XGBoost ablations + SHAP |
+| `00_replay_parsing_prototype.ipynb` | **Optional.** Download one `.dem`, parse positions with Clarity. Requires **Java 17+**. Not needed to regenerate report figures |
+
+## Data access and ownership
+
+- Match metadata and replay URLs were obtained through the public [OpenDota API](https://docs.opendota.com/).
+- Positions were parsed from ranked All-Draft replays with [Clarity](https://github.com/skadistats/clarity-examples).
+- Underlying game content is owned by Valve. This repo only ships **derived research samples** (feature tables / a few matches of positions), not a redistribution of Valve client assets.
+- Full research extract used for the report:
+
+```text
+gs://siads699-dota/dataset/v1/
+```
+
+Access to that bucket is limited to accounts granted permission (course/team GCP). If `gsutil` returns `401 Anonymous caller`, use the sample files or ask a teammate who has access.
+
+### Labels
+
+- `skill_label` (match): high vs low from lobby average `rank_tier`
+- `rank_tier` (player): individual medal score
+- Europe-heavy training pool; holdout slice mostly Singapore
+
+A large share of rank variance sits at the match/lobby level, so features built from the other nine players can leak the label. The feature sets used for modeling stay focused on each player’s own movement. See `docs/Feature_Spec_v0.1.html`.
+
+## Methods (very short)
+
+1. Convert raw `(x, y)` to team-relative `own_depth` / `own_lateral` so Radiant and Dire are comparable.
+2. Mask short windows after fountain teleports (death proxy).
+3. Aggregate to player-match features: depth, speed, idle share, path stats, lane × phase shares.
+4. Compare high vs low lobbies; train XGBoost on movement-only features; ablate feature groups; inspect SHAP.
+
+We do **not** use gold, XP, KDA, or win/loss in the movement feature set.
 
 ## Main result
 
-Higher-rank lobbies move a bit faster and idle a bit less. Average depth and lane occupancy look similar across ranks. Movement alone carries signal above chance, but effects are **small**. Claims about skill-from-motion need hero controls and leakage checks.
+Higher-rank lobbies move a bit more and idle a bit less. Average depth and lane occupancy stay similar. On a held-out player split, the best movement-only models reached about **AUC 0.79** and **accuracy 0.73**; a tiny depth/path/idle-only set was much weaker (~0.62 AUC). That is above chance, not product-ready skill detection. Lobby labels mix individual ranks, and hero/role can mimic skill in spatial data.
 
 ## Report
 
-See `reports/SIADS699_Dota2_Movement_Skill_Report.docx` (and PDF). Figures used in the report live under `reports/figures/`.
+- PDF/DOCX: `reports/`
+- Figures: `reports/figures/`
+- Regenerated by running the report-figure cells in `01_feature_engineering.ipynb`
 
-## Key rules we followed
+## Requirements
 
-1. Transform coordinates to the team-relative frame before any feature work.
-2. Treat lobby leakage seriously; prefer self-focused movement features.
-3. Deaths are a mask, not a skill feature.
-4. No gold / XP / KDA / win-loss in the movement feature set.
-5. No API keys or service-account JSON in this repository.
+See `requirements.txt` (pandas, pyarrow, scikit-learn, xgboost, shap, matplotlib, jupyter, …).
 
 ## Statement of work (summary)
 
 | Person | Focus |
 |--------|--------|
 | Gabriel Mejia | Framing, feature-spec design, phase/lane analysis, report, mentor-feedback integration |
-| Changwoo Kim | Collection at scale, storage layout, missing-replay bias checks |
-| Sung-jin Bae | Modeling support, ablations/SHAP, visualization support |
+| Changwoo Kim | Collection at scale, GCS layout, missing-replay checks, parsing pipeline |
+| Sung-jin Bae | Modeling support, ablations/SHAP, visualization support, project coordination |
 
-## Course context
+## Course
 
-SIADS 699 Capstone, University of Michigan Master of Applied Data Science.
+SIADS 699 Capstone · Master of Applied Data Science · University of Michigan
