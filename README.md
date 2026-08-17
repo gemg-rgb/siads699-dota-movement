@@ -73,7 +73,7 @@ gcloud auth login
 gsutil -m cp -r gs://siads699-dota/dataset/v1/ ./data/
 ```
 
-### Label definition (short)
+### Label definition
 
 - Match-level `skill_label`: high vs low from lobby `avg_rank_tier`
 - Player-level `rank_tier`: individual medal score (preferred for sensitivity checks)
